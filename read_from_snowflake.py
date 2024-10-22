@@ -3,8 +3,8 @@ import csv
 import os
 import duckdb
 
-# List of tables to extract
-tables = ['raw_hosts', 'raw_listings', 'raw_reviews']  # Add all your table names here
+# List of tables to extract.  Table + filter condition
+tables = [('raw_hosts','1=1'), ('raw_listings','1=1'), ('raw_reviews','1=1')]  # Add all your table names here
 
 # Remove existing CSV files
 for table in tables:
@@ -25,9 +25,9 @@ conn = snowflake.connector.connect(
 batch_size = 10000
 
 try:
-    for table in tables:
+    for table, filter in tables:
         # SQL query to retrieve data from the current table
-        query = f"SELECT * FROM {table}"
+        query = f"SELECT * FROM {table} WHERE {filter}"
 
         # Create a cursor object
         cur = conn.cursor()
