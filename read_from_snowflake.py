@@ -1,10 +1,22 @@
-import snowflake.connector
+from  snowflake.snowpark import Session
 import os
 import duckdb
 import json
+import argparse
+import shutil
+
+# *********************************************************************************************************************
+# Setup argument parser
+parser = argparse.ArgumentParser(description='Read data from Snowflake and save to DuckDB.')
+parser.add_argument('--sf_connection', type=str, required=True, help='Snowflake connection name in connections.toml')
+parser.add_argument('--duckdb', type=str, required=True, help='Name of the duckdb file to save the data')
+
+args = parser.parse_args()
+
+# *********************************************************************************************************************
 
 # Setup Snowflake connection parameters
-sf_connection = "CTID_DEV_DP_INSTRUMENT_GETLOGS" # should be in connections.toml
+sf_connection = args.sf_connection # should be in connections.toml
 
 
 with open('tables.json', 'r') as f:
@@ -14,12 +26,10 @@ with open('tables.json', 'r') as f:
 tables = [tuple(item) for item in tables_list["tables"]]
 
 
-
 # Establish connection to Snowflake and DuckDB
-conn = snowflake.connector.connect(
-   connection_name=sf_connection
-)
-duck_conn = duckdb.connect('duckdb.db')
+session = Session.builder.config("connection_name", sf_connection).create()
+
+duck_conn = duckdb.connect(args.duckdb)
 
 
 try:
@@ -28,43 +38,34 @@ try:
         query = f"SELECT * FROM {table} WHERE {filter}"
 
         # Create a cursor object
-        cur = conn.cursor()
+        df = session.sql(query)
+        # file_name = f"{table}.parquet"
+        remote_file_path = f"{session.get_session_stage()}/{table}"
+        copy_result = df.write.parquet(remote_file_path, overwrite=True, header = True)
+        print(f"Exported {copy_result[0].rows_unloaded} rows from {table} to Snowflake stage")
 
-        # Execute the query
-        cur.execute(query)
+        # Get file from STAGE
+        session.file.get(remote_file_path, f"./stage/{table}")
 
        
         # Remove table if it already exists
         duck_conn.execute(f"DROP TABLE IF EXISTS {table}")
 
-        file_counter = 0
-        for batch_df in cur.fetch_pandas_batches():
-            file_counter += 1
-            file_name = f'{table}.{file_counter}.parquet'
-            batch_df.to_parquet(file_name, index=False)
-            if file_counter == 1:
-                duck_conn.execute(f"""
-                    CREATE TABLE {table} AS 
-                    SELECT * FROM read_parquet('{file_name}')
-                    """)
-            else:
-                duck_conn.execute(f"""
-                    INSERT INTO {table}
-                    SELECT * FROM read_parquet('{file_name}')
-                    """)
-            print(f"Imported {file_name} into DuckDB table {table}")
-            os.remove(file_name)
-
+  
+        duck_conn.execute(f"""
+            CREATE TABLE {table} AS 
+            SELECT * FROM read_parquet('stage/{table}/*.parquet')
+            """)
+  
+        print(f"Imported {table} into DuckDB!! ")
        
-
-        # Close the cursor
-        cur.close()
 
 
 finally:
     # Close the connection
-    conn.close()
+    session.close()
     duck_conn.close()
+    shutil.rmtree('./stage')
 
 
 

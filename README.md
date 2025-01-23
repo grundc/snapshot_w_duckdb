@@ -10,3 +10,10 @@ why not creating a snapshot of the data and work offline with it?
 
 - setup a virtual environment based on the "requirements.txt"
 - create a "tables.json" file --> checkout "tables_template.json"
+
+
+# note
+this version uses the approach to generate parque files on snowflake and
+downloads the files. This was the best solution to ensure proper data type
+matching. The downside is, that it won't work if a column on snowflake has the datatype
+"timstamp_ltz" or "timstamp_tz", as these are not supported.
